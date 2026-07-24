@@ -196,9 +196,38 @@ deps.Logger.TaskInfo("prepare-stage", `prepared stage "demo"`)
 
 - Prefer `TaskInfo` / `TaskError` with the Action `Name` as the first argument  
 - Flow-level: `FlowInfo` / `FlowError`  
-- Redirect all logger output with `goblin.SetOutput(w)` (tests, capture)
+- Redirect all console logger output with `goblin.SetOutput(w)` (tests, capture)
 
 `Do` / `DoValue` remain public for rare cases outside Actions; Action bodies should not call them.
+
+### Run info stores
+
+`Logger.Stores` holds one or more [`RunStore`](store.go) adapters that receive structured begin/end events for flows and tasks. When `Stores` is nil or empty, **ConsoleStore** (pterm) is used — the previous default behaviour.
+
+| Adapter | Constructor | Purpose |
+| ------- | ----------- | ------- |
+| Console | `NewConsoleStore()` | pterm console lines (default) |
+| SQLite | `NewSQLiteStore(path)` | Persist runs/tasks (pure Go, `modernc.org/sqlite`) |
+| Syslog | `NewSyslogStore(w)` / `NewSyslogFileStore(path)` | BSD syslog **RFC 3164** text lines |
+
+Use more than one via `MultiStore` (or a `Stores` slice):
+
+```go
+sqlite, err := goblin.NewSQLiteStore("/var/lib/app/goblin-runs.db")
+if err != nil {
+	log.Fatal(err)
+}
+defer sqlite.Close()
+
+logger := &goblin.Logger{
+	Flow: "deploy-app",
+	Stores: []goblin.RunStore{
+		goblin.MultiStore(goblin.NewConsoleStore(), sqlite),
+	},
+}
+```
+
+Custom backends (JSON, Apache Combined, …) implement `RunStore`. Ad-hoc flow messages can also implement optional `FlowMessenger`.
 
 ## YAML flows
 

@@ -58,6 +58,7 @@ func wrapAction(logger *Logger, a Action, tracker *runTracker) (any, error) {
 			vout := validateVal.Call(args)
 			if errVal := vout[0]; !errVal.IsNil() {
 				err := errVal.Interface().(error)
+				logger.beginTask(name)
 				logger.TaskError(name, fmt.Sprintf("Finished in state Failed('%v')", err))
 				logger.flushTask(name, true)
 				return []reflect.Value{

@@ -1,21 +1,28 @@
 package goblin
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
 	"io"
 	"os"
 	"sync"
+	"time"
 
 	"github.com/pterm/pterm"
 )
 
-// Logger emits structured pterm log lines for flows and tasks.
-// Task messages are buffered and flushed together when the task finishes,
-// so all messages for a given task appear under a single header line.
+// Logger buffers task messages and dispatches run lifecycle events to Stores.
+// When Stores is nil or empty, a ConsoleStore is used (pterm output).
 type Logger struct {
-	Flow    string
-	mu      sync.Mutex
-	taskBuf map[string][]string
+	Flow   string
+	Stores []RunStore
+
+	mu          sync.Mutex
+	taskBuf     map[string][]string
+	runID       string
+	runStarted  time.Time
+	taskStarted map[string]time.Time
 }
 
 var (
@@ -23,7 +30,7 @@ var (
 	globalOut   io.Writer
 )
 
-// SetOutput redirects all Logger output to w. Pass nil to restore os.Stdout.
+// SetOutput redirects all ConsoleStore / pterm output to w. Pass nil to restore os.Stdout.
 func SetOutput(w io.Writer) {
 	globalOutMu.Lock()
 	globalOut = w
@@ -40,16 +47,33 @@ func effectiveOutput() io.Writer {
 	return os.Stdout
 }
 
-// FlowInfo logs a flow-level info message.
-func (l *Logger) FlowInfo(msg string) {
-	log := l.logger()
-	log.Info(fmt.Sprintf("Flow run '%s'", l.Flow), log.Args("message", msg))
+func newRunID() string {
+	var b [16]byte
+	_, _ = rand.Read(b[:])
+	return hex.EncodeToString(b[:])
 }
 
-// FlowError logs a flow-level error message.
+// FlowInfo logs a flow-level info message via any FlowMessenger stores (Console by default).
+func (l *Logger) FlowInfo(msg string) {
+	l.dispatchFlowMessage(false, msg)
+}
+
+// FlowError logs a flow-level error message via any FlowMessenger stores (Console by default).
 func (l *Logger) FlowError(msg string) {
-	log := l.logger()
-	log.Error(fmt.Sprintf("Flow run '%s'", l.Flow), log.Args("message", msg))
+	l.dispatchFlowMessage(true, msg)
+}
+
+func (l *Logger) dispatchFlowMessage(isError bool, msg string) {
+	emitted := false
+	for _, s := range l.effectiveStores() {
+		if fm, ok := s.(FlowMessenger); ok {
+			fm.FlowMessage(l.Flow, isError, msg)
+			emitted = true
+		}
+	}
+	if !emitted {
+		defaultConsoleStore.FlowMessage(l.Flow, isError, msg)
+	}
 }
 
 // TaskInfo buffers a task-level info message; flushed by Do/DoValue on completion.
@@ -72,25 +96,37 @@ func (l *Logger) TaskError(task, msg string) {
 	l.taskBuf[task] = append(l.taskBuf[task], msg)
 }
 
-// flushTask drains the buffer for task and emits a single grouped log line.
+// flushTask drains the buffer and ends the task via stores (Console emits pterm).
 func (l *Logger) flushTask(task string, isError bool) {
-	l.mu.Lock()
-	msgs := l.taskBuf[task]
-	delete(l.taskBuf, task)
-	l.mu.Unlock()
-
-	ptermLog := l.logger()
-	args := make([]any, 0, len(msgs)*2)
-	for _, msg := range msgs {
-		args = append(args, "message", msg)
-	}
+	errMsg := ""
 	if isError {
-		ptermLog.Error(fmt.Sprintf("Task run '%s'", task), ptermLog.Args(args...))
+		errMsg = "failed"
+	}
+	l.endTask(task, isError, errMsg)
+}
+
+func ptermLogger() *pterm.Logger {
+	return pterm.DefaultLogger.WithLevel(pterm.LogLevelInfo).WithWriter(effectiveOutput())
+}
+
+func emitFlowPterm(flow string, isError bool, msg string) {
+	log := ptermLogger()
+	if isError {
+		log.Error(fmt.Sprintf("Flow run '%s'", flow), log.Args("message", msg))
 	} else {
-		ptermLog.Info(fmt.Sprintf("Task run '%s'", task), ptermLog.Args(args...))
+		log.Info(fmt.Sprintf("Flow run '%s'", flow), log.Args("message", msg))
 	}
 }
 
-func (l *Logger) logger() *pterm.Logger {
-	return pterm.DefaultLogger.WithLevel(pterm.LogLevelInfo).WithWriter(effectiveOutput())
+func emitTaskPterm(task string, isError bool, messages []string) {
+	log := ptermLogger()
+	args := make([]any, 0, len(messages)*2)
+	for _, msg := range messages {
+		args = append(args, "message", msg)
+	}
+	if isError {
+		log.Error(fmt.Sprintf("Task run '%s'", task), log.Args(args...))
+	} else {
+		log.Info(fmt.Sprintf("Task run '%s'", task), log.Args(args...))
+	}
 }
