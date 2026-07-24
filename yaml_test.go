@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"testing/fstest"
 
 	"github.com/ruivieira/goblin"
 )
@@ -239,8 +240,8 @@ func TestParseFile(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(path, data, 0o644); err != nil {
-		t.Fatal(err)
+	if writeErr := os.WriteFile(path, data, 0o644); writeErr != nil {
+		t.Fatal(writeErr)
 	}
 	doc, err := goblin.ParseFile(path)
 	if err != nil {
@@ -268,5 +269,13 @@ func TestParseFileMissing(t *testing.T) {
 	}
 	if !errors.Is(err, os.ErrNotExist) && !strings.Contains(err.Error(), "no such file") {
 		t.Logf("got expected failure: %v", err)
+	}
+}
+
+func TestParseFSMissing(t *testing.T) {
+	fsys := fstest.MapFS{}
+	_, err := goblin.ParseFS(fsys, "missing.yaml")
+	if err == nil {
+		t.Fatal("expected error")
 	}
 }

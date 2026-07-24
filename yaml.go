@@ -47,7 +47,8 @@ func Parse(data []byte) (*Document, error) {
 
 // ParseFile reads path from disk and parses it.
 func ParseFile(path string) (*Document, error) {
-	data, err := os.ReadFile(path)
+	// path is an explicit ParseFile API argument (caller-controlled).
+	data, err := os.ReadFile(path) // #nosec G304 -- caller-provided flow path
 	if err != nil {
 		return nil, fmt.Errorf("goblin: read %s: %w", path, err)
 	}
