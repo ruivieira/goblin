@@ -1,0 +1,9 @@
+name: greet-flow
+kind: goblin/v1
+parameters:
+  who: goblin
+steps:
+  - id: hello
+    action: yaml-test-greet
+    with:
+      name: ${who}
