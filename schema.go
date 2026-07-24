@@ -139,16 +139,20 @@ func InstallJSONSchema(path string) error {
 	if path == "" {
 		path = DefaultSchemaPath()
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
 		return fmt.Errorf("goblin: create schema dir: %w", err)
 	}
-	f, err := os.Create(path)
+	// path is an explicit InstallJSONSchema API argument (caller-controlled).
+	f, err := os.Create(path) // #nosec G304 -- caller-provided install path
 	if err != nil {
 		return fmt.Errorf("goblin: create schema file: %w", err)
 	}
-	defer f.Close()
 	if err := WriteJSONSchema(f); err != nil {
+		_ = f.Close()
 		return err
+	}
+	if err := f.Close(); err != nil {
+		return fmt.Errorf("goblin: close schema file: %w", err)
 	}
 	return nil
 }

@@ -2,6 +2,13 @@
   <img src="docs/goblin.png" alt="Goblin" width="360" />
 </p>
 
+<p align="center">
+  <a href="https://github.com/ruivieira/goblin/actions/workflows/ci.yml"><img src="https://github.com/ruivieira/goblin/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
+  <a href="https://pkg.go.dev/github.com/ruivieira/goblin"><img src="https://img.shields.io/badge/go-1.26-00ADD8?logo=go&logoColor=white" alt="Go 1.26" /></a>
+  <a href="https://codecov.io/gh/ruivieira/goblin"><img src="https://codecov.io/gh/ruivieira/goblin/branch/main/graph/badge.svg" alt="codecov" /></a>
+  <a href="https://goreportcard.com/report/github.com/ruivieira/goblin"><img src="https://goreportcard.com/badge/github.com/ruivieira/goblin" alt="Go Report Card" /></a>
+</p>
+
 # Goblin
 
 Type-driven DAG runner for Go workflows. Goblin wraps [`go-future/dagfunc`](https://github.com/jizhuozhi/go-future) with named **Actions**, structured logging, optional validate/compensate hooks, and a registry.
@@ -277,8 +284,10 @@ your-app/internal/flows/      ← goblin.Run compositions (consumer)
 ## Tests
 
 ```bash
-go test ./...
+go test ./... -race -cover
 ```
+
+CI also runs `golangci-lint`, `gosec`, and `govulncheck`, and fails if statement coverage drops below 85%.
 
 Call an Action’s implementation from unit tests via `Fn()`:
 

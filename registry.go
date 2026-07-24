@@ -48,11 +48,3 @@ func ByName(name string) Action {
 	defer regMu.RUnlock()
 	return byName[name]
 }
-
-// resetRegistry clears the registry. For tests only.
-func resetRegistry() {
-	regMu.Lock()
-	defer regMu.Unlock()
-	byName = make(map[string]Action)
-	ordered = nil
-}

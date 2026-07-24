@@ -120,6 +120,90 @@ func TestDefaultSchemaPath(t *testing.T) {
 	}
 }
 
+func TestDefaultSchemaPathFallsBackToHome(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", "")
+	t.Setenv("HOME", "/tmp/home-fallback-test")
+	got := goblin.DefaultSchemaPath()
+	want := filepath.Join("/tmp/home-fallback-test", ".config", "goblin", goblin.SchemaFileName)
+	if got != want {
+		t.Fatalf("DefaultSchemaPath: got %q want %q", got, want)
+	}
+}
+
+type mixedSchemaCfg struct {
+	Name    string            `yaml:"name"`
+	Enabled bool              `yaml:"enabled"`
+	Count   int               `yaml:"count"`
+	Tags    []string          `yaml:"tags"`
+	Meta    map[string]string `yaml:"meta"`
+	Nested  struct {
+		Path string `yaml:"path"`
+	} `yaml:"nested"`
+	Skip string  `yaml:"-"`
+	Ptr  *string `yaml:"ptr"`
+}
+
+type mixedSchemaOut struct {
+	OK bool
+}
+
+func TestJSONSchemaMixedFieldTypes(t *testing.T) {
+	if goblin.ByName("schema-test-mixed") == nil {
+		goblin.Register(goblin.New(goblin.Spec{
+			Name: "schema-test-mixed",
+			Fn: func(_ context.Context, deps goblin.Deps, cfg mixedSchemaCfg) (mixedSchemaOut, error) {
+				return mixedSchemaOut{OK: true}, nil
+			},
+		}))
+	}
+
+	raw, err := json.Marshal(goblin.JSONSchema())
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	var schema map[string]any
+	if err := json.Unmarshal(raw, &schema); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	defs, _ := schema["$defs"].(map[string]any)
+	withDef, ok := defs["with_schema_test_mixed"].(map[string]any)
+	if !ok {
+		t.Fatalf("missing $defs.with_schema_test_mixed; defs=%v", keysOf(defs))
+	}
+	withProps, _ := withDef["properties"].(map[string]any)
+
+	assertType := func(field, want string) {
+		t.Helper()
+		prop, ok := withProps[field].(map[string]any)
+		if !ok {
+			t.Fatalf("missing field %q in %v", field, keysOf(withProps))
+		}
+		// Fields are wrapped in oneOf (typed | ${param}).
+		oneOf, ok := prop["oneOf"].([]any)
+		if !ok || len(oneOf) == 0 {
+			t.Fatalf("field %q: expected oneOf, got %#v", field, prop)
+		}
+		typed, _ := oneOf[0].(map[string]any)
+		if typed["type"] != want {
+			t.Fatalf("field %q type: got %v want %q", field, typed["type"], want)
+		}
+	}
+
+	assertType("name", "string")
+	assertType("enabled", "boolean")
+	assertType("count", "number")
+	assertType("tags", "array")
+	assertType("meta", "object")
+	assertType("nested", "object")
+
+	if _, ok := withProps["ptr"]; ok {
+		t.Fatal("pointer field should be omitted from schema")
+	}
+	if _, ok := withProps["skip"]; ok {
+		t.Fatal("yaml:\"-\" field should be omitted from schema")
+	}
+}
+
 func keysOf(m map[string]any) []string {
 	keys := make([]string, 0, len(m))
 	for k := range m {

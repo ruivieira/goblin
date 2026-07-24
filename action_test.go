@@ -22,6 +22,90 @@ func TestNewPanicsOnBadFn(t *testing.T) {
 	_ = goblin.New(goblin.Spec{Name: "bad", Fn: "not-a-func"})
 }
 
+func TestNewPanicsTable(t *testing.T) {
+	goodFn := func(ctx context.Context, deps goblin.Deps, s seedA) (outA, error) {
+		return outA{}, nil
+	}
+	cases := []struct {
+		name string
+		spec goblin.Spec
+	}{
+		{name: "empty-name", spec: goblin.Spec{Fn: goodFn}},
+		{name: "nil-fn", spec: goblin.Spec{Name: "nil-fn"}},
+		{name: "bad-fn-signature", spec: goblin.Spec{Name: "bad-fn", Fn: func() {}}},
+		{name: "bad-fn-no-ctx", spec: goblin.Spec{Name: "bad-fn-ctx", Fn: func(s seedA) (outA, error) { return outA{}, nil }}},
+		{
+			name: "bad-validate-not-func",
+			spec: goblin.Spec{Name: "bad-validate", Fn: goodFn, Validate: "nope"},
+		},
+		{
+			name: "bad-validate-params",
+			spec: goblin.Spec{
+				Name:     "bad-validate-params",
+				Fn:       goodFn,
+				Validate: func(ctx context.Context) error { return nil },
+			},
+		},
+		{
+			name: "bad-compensate-signature",
+			spec: goblin.Spec{
+				Name:       "bad-compensate",
+				Fn:         goodFn,
+				Compensate: func(ctx context.Context, r outB) error { return nil },
+			},
+		},
+		{
+			name: "bad-compensate-not-func",
+			spec: goblin.Spec{Name: "bad-compensate-type", Fn: goodFn, Compensate: 42},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			defer func() {
+				if recover() == nil {
+					t.Fatal("expected panic")
+				}
+			}()
+			_ = goblin.New(tc.spec)
+		})
+	}
+}
+
+func TestRunCompensateErrorIsLogged(t *testing.T) {
+	logger := &goblin.Logger{Flow: "test-compensate-err"}
+	deps := goblin.Deps{Logger: logger}
+
+	stepA := goblin.New(goblin.Spec{
+		Name: "step-a-compensate-err",
+		Fn: func(ctx context.Context, deps goblin.Deps, s seedA) (outA, error) {
+			return outA{V: "a"}, nil
+		},
+		Compensate: func(ctx context.Context, r outA) error {
+			return errors.New("undo failed")
+		},
+	})
+	stepB := goblin.New(goblin.Spec{
+		Name: "step-b-fail-after",
+		Fn: func(ctx context.Context, deps goblin.Deps, a outA) (outB, error) {
+			return outB{}, errors.New("boom")
+		},
+	})
+
+	out := captureOutput(t, func() {
+		err := goblin.Run(context.Background(), logger,
+			[]any{deps, seedA{N: 1}},
+			[]any{stepA, stepB},
+			nil,
+		)
+		if err == nil {
+			t.Fatal("expected error")
+		}
+	})
+	if !strings.Contains(out, "compensate") || !strings.Contains(out, "undo failed") {
+		t.Fatalf("expected compensate error log, got: %q", out)
+	}
+}
+
 func TestRegistry(t *testing.T) {
 	// Use unique names; registry is process-global.
 	a := goblin.New(goblin.Spec{

@@ -73,3 +73,42 @@ func TestDoValue(t *testing.T) {
 		t.Fatalf("got %q, want ok", v)
 	}
 }
+
+func TestDoValueFailure(t *testing.T) {
+	logger := &goblin.Logger{Flow: "test-flow"}
+	want := errors.New("boom")
+	out := captureOutput(t, func() {
+		v, err := goblin.DoValue(logger, "fail-value", func() (string, error) {
+			return "", want
+		})
+		if !errors.Is(err, want) {
+			t.Fatalf("got %v, want %v", err, want)
+		}
+		if v != "" {
+			t.Fatalf("got %q, want zero value", v)
+		}
+	})
+	if !strings.Contains(out, "Failed('boom')") {
+		t.Fatalf("expected failure log, got: %q", out)
+	}
+}
+
+func TestSetOutput(t *testing.T) {
+	var buf bytes.Buffer
+	goblin.SetOutput(&buf)
+	t.Cleanup(func() { goblin.SetOutput(nil) })
+
+	logger := &goblin.Logger{Flow: "set-output"}
+	logger.FlowInfo("redirected")
+	if !strings.Contains(buf.String(), "redirected") {
+		t.Fatalf("expected redirected output, got: %q", buf.String())
+	}
+
+	goblin.SetOutput(nil)
+	out := captureOutput(t, func() {
+		logger.FlowInfo("stdout-again")
+	})
+	if !strings.Contains(out, "stdout-again") {
+		t.Fatalf("expected stdout after restore, got: %q", out)
+	}
+}
